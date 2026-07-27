@@ -1,0 +1,102 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Visitor {
+  id          String    @id @default(uuid())
+  visitorId   String    @unique
+  firstSeenAt DateTime  @default(now())
+  lastSeenAt  DateTime  @updatedAt
+  visitCount  Int       @default(1)
+
+  sessions    Session[]
+
+  @@map("visitors")
+}
+
+model Session {
+  id              String   @id @default(uuid())
+
+  visitorId       String
+  visitor          Visitor @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+  durationMs      Int?
+
+  ip              String?
+  country         String?
+  region          String?
+  city            String?
+
+  timezone        String?
+  language        String?
+
+  userAgent       String?
+
+  browser         String?
+  browserVersion  String?
+
+  os              String?
+  osVersion       String?
+
+  deviceType      String?
+
+  screenWidth     Int?
+  screenHeight    Int?
+
+  viewportWidth   Int?
+  viewportHeight  Int?
+
+  referrer        String?
+  currentUrl      String?
+
+  utmSource       String?
+  utmMedium       String?
+  utmCampaign     String?
+  utmTerm         String?
+  utmContent      String?
+
+  events          Event[]
+  pageViews       PageView[]
+
+  @@map("sessions")
+}
+
+model Event {
+  id          String   @id @default(uuid())
+
+  sessionId   String
+  session     Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  type        String
+  page        String?
+  element     String?
+  metadata    Json?
+
+  createdAt   DateTime @default(now())
+
+  @@map("events")
+}
+
+model PageView {
+  id            String   @id @default(uuid())
+
+  sessionId     String
+  session       Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  path          String
+  title         String?
+
+  enteredAt     DateTime @default(now())
+  leftAt        DateTime?
+
+  timeOnPageMs  Int?
+
+  @@map("page_views")
+}
