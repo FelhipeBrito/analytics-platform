@@ -15,7 +15,7 @@ function App() {
   }
   useEffect(() => {
   async function registerVisit() {
-    await fetch("http://localhost:3000/visit", {
+    await fetch("https://analytics-platform-1-isvp.onrender.com/visit", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
