@@ -1,10 +1,21 @@
 import { Router } from "express";
 import prisma from "../config/prisma.js";
 import { getLocation } from "../geoip.js";
+import { isIP } from "node:net";
 
 const router = Router();
 const hits = new Map<string, { count: number; reset: number }>();
 const LIMIT = 35;
+
+// Ative apenas quando a borda do serviço sobrescreve este cabeçalho.
+// O IP informado nunca é persistido no banco de dados.
+function clientIp(req: import("express").Request): string {
+  if (process.env.GEOIP_TRUST_CF_HEADER === "true") {
+    const forwarded = req.header("cf-connecting-ip")?.trim();
+    if (forwarded && isIP(forwarded)) return forwarded;
+  }
+  return req.ip || "";
+}
 function limited(ip: string): boolean {
   const now = Date.now();
   if (hits.size > 5000) for (const [key, item] of hits) if (item.reset < now) hits.delete(key);
@@ -28,7 +39,7 @@ function cleanUrl(value: unknown): string | undefined {
   } catch { return undefined; }
 }
 router.post("/", async (req, res) => {
-  const ip = req.ip || "";
+  const ip = clientIp(req);
   if (limited(ip)) return res.status(429).json({ error: "Limite de requisições atingido" });
   const data = req.body;
   if (!data || typeof data !== "object" || Array.isArray(data) || typeof data.visitorId !== "string" ||
@@ -80,7 +91,7 @@ router.post("/:sessionId/end", async (req, res) => {
   if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return res.status(400).json({ error: "Sessão inválida" });
   const duration = req.body?.durationMs;
   if (typeof duration !== "number" || !Number.isInteger(duration) || duration < 0 || duration > 86400000) return res.status(400).json({ error: "Duração inválida" });
-  if (limited(req.ip || "")) return res.status(429).json({ error: "Limite atingido" });
+  if (limited(clientIp(req))) return res.status(429).json({ error: "Limite atingido" });
   try {
     await prisma.session.updateMany({ where: { id: sessionId, endedAt: null }, data: { endedAt: new Date(), durationMs: duration } });
     return res.status(204).end();
