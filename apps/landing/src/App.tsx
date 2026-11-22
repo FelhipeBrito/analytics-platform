@@ -84,7 +84,6 @@ function App() {
       {details && <section className="details" aria-label="Dados do navegador">
         {details.map(([name, value]) => <div className="detail" key={name}><span>{name}</span><strong>{value}</strong></div>)}
       </section>}
-      <p className="privacy">Ao mostrar seus dados, uma visita é registrada com informações técnicas e localização aproximada por IP. Não armazenamos o IP bruto. <a href="https://github.com/FelhipeBrito/analytics-platform" target="_blank" rel="noreferrer">Código-fonte</a></p>
     </section>
   </main>;
 }
