@@ -1,82 +1,92 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
+import TrollFace from "./assets/Trollface.png";
 import "./App.css";
 
 const API = import.meta.env.VITE_API_URL || "https://analytics-platform-1-isvp.onrender.com";
-function getVisitorId(): string {
+type Detail = [string, string];
+
+function visitorId(): string {
   try {
-    const existing = localStorage.getItem("analytics_visitor_id") || localStorage.getItem("visitor_id");
-    if (existing && /^[0-9a-f-]{36}$/i.test(existing)) return existing;
+    const previous = localStorage.getItem("analytics_visitor_id") || localStorage.getItem("visitor_id");
+    if (previous && /^[0-9a-f-]{36}$/i.test(previous)) return previous;
     const id = crypto.randomUUID();
     localStorage.setItem("analytics_visitor_id", id);
     return id;
   } catch { return crypto.randomUUID(); }
 }
+
 function platform() {
   const ua = navigator.userAgent;
-  const browser = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Outro";
+  const browser = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /CriOS\//.test(ua) ? "Chrome iOS" : /FxiOS\//.test(ua) ? "Firefox iOS" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Outro";
   const os = /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS/iPadOS" : /Windows/.test(ua) ? "Windows" : /Mac OS/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : "Outro";
   const deviceType = /iPad|Tablet/.test(ua) ? "Tablet" : /Mobi|Android|iPhone/.test(ua) ? "Mobile" : "Desktop";
   return { browser, os, deviceType };
 }
+
 function App() {
-  const [status, setStatus] = useState("Nenhuma coleta iniciada");
-  const [diagnostic, setDiagnostic] = useState(false);
-  const [values, setValues] = useState<[string,string][]>([]);
-  useEffect(() => {
-    // A visita não é enviada antes da ação explícita do visitante.
-  }, []);
-  function inspect() {
-    const p = platform();
-    setValues([
-      ["Navegador", p.browser], ["Sistema", p.os], ["Dispositivo", p.deviceType],
-      ["Idioma", navigator.language], ["Fuso horário", Intl.DateTimeFormat().resolvedOptions().timeZone],
-      ["Tela", `${screen.width} × ${screen.height}`],
+  const [details, setDetails] = useState<Detail[] | null>(null);
+  const registered = useRef(false);
+
+  function showMyData() {
+    const info = platform();
+    setDetails([
+      ["Navegador", info.browser],
+      ["Sistema operacional", info.os],
+      ["Dispositivo", info.deviceType],
+      ["Idioma", navigator.language],
+      ["Fuso horário", Intl.DateTimeFormat().resolvedOptions().timeZone],
+      ["Resolução", `${screen.width} × ${screen.height}`],
       ["Janela", `${innerWidth} × ${innerHeight}`],
       ["Toques suportados", String(navigator.maxTouchPoints)],
-      ["Tema", matchMedia("(prefers-color-scheme: dark)").matches ? "Escuro" : "Claro"],
-      ["CPUs lógicas (se disponível)", String(navigator.hardwareConcurrency || "Não informado")],
-      ["Memória estimada (se disponível)", String((navigator as Navigator & {deviceMemory?:number}).deviceMemory ?? "Não informada")],
+      ["Tema preferido", matchMedia("(prefers-color-scheme: dark)").matches ? "Escuro" : "Claro"],
+      ["Núcleos lógicos", String(navigator.hardwareConcurrency || "Indisponível")],
+      ["RAM estimada", (navigator as Navigator & { deviceMemory?: number }).deviceMemory != null ? `${(navigator as Navigator & { deviceMemory?: number }).deviceMemory} GB` : "Indisponível"],
     ]);
-    setDiagnostic(true);
+
+    // Apenas uma visita por abertura da página, acionada pelo botão.
+    if (registered.current) return;
+    registered.current = true;
+    const startedAt = performance.now();
+    const params = new URL(location.href).searchParams;
+    void fetch(`${API}/visit`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        visitorId: visitorId(),
+        language: navigator.language,
+        userAgent: navigator.userAgent,
+        ...info,
+        screenWidth: screen.width,
+        screenHeight: screen.height,
+        viewportWidth: innerWidth,
+        viewportHeight: innerHeight,
+        currentUrl: location.origin + location.pathname,
+        referrer: document.referrer,
+        utmSource: params.get("utm_source"),
+        utmMedium: params.get("utm_medium"),
+        utmCampaign: params.get("utm_campaign"),
+      }),
+    }).then(async response => {
+      if (!response.ok) return;
+      const result: { sessionId?: string } = await response.json();
+      if (!result.sessionId) return;
+      window.addEventListener("pagehide", () => {
+        const body = new Blob([JSON.stringify({ durationMs: Math.min(86400000, Math.round(performance.now() - startedAt)) })], { type: "application/json" });
+        navigator.sendBeacon?.(`${API}/visit/${result.sessionId}/end`, body);
+      }, { once: true });
+    }).catch(() => { /* A visualização dos dados funciona mesmo sem a API. */ });
   }
-  async function register() {
-    setStatus("Registrando visita…");
-    const p = platform();
-    const u = new URL(location.href);
-    try {
-      const started = performance.now();
-      const response = await fetch(`${API}/visit`, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          visitorId: getVisitorId(), language: navigator.language, userAgent: navigator.userAgent, ...p,
-          screenWidth: screen.width, screenHeight: screen.height,
-          viewportWidth: innerWidth, viewportHeight: innerHeight,
-          currentUrl: location.origin + location.pathname, referrer: document.referrer,
-          utmSource: u.searchParams.get("utm_source"), utmMedium: u.searchParams.get("utm_medium"), utmCampaign: u.searchParams.get("utm_campaign"),
-        }),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const { sessionId } = await response.json();
-      setStatus("Visita registrada. Nenhum IP bruto é armazenado pela aplicação.");
-      if (typeof sessionId === "string") {
-        const end = () => {
-          const data = JSON.stringify({ durationMs: Math.min(86400000, Math.round(performance.now() - started)) });
-          const blob = new Blob([data], { type: "application/json" });
-          navigator.sendBeacon?.(`${API}/visit/${sessionId}/end`, blob);
-        };
-        window.addEventListener("pagehide", end, { once: true });
-      }
-    } catch { setStatus("Falha na comunicação com a API. Nenhuma confirmação de registro."); }
-  }
-  return <main className="shell">
-    <header><span className="brand">WEB / LAB</span><span className="pill">Experimento educacional</span></header>
-    <section className="intro"><p className="eyebrow">DIAGNÓSTICO DO NAVEGADOR</p>
-      <h1>O que uma página consegue saber sobre seu navegador?</h1>
-      <p>Veja quais características seu navegador disponibiliza. A consulta local não envia informações ao servidor. O registro opcional de visita é uma ação separada.</p>
-      <div className="actions"><button onClick={inspect}>Ver meu diagnóstico</button><button className="secondary" onClick={register}>Registrar visita voluntariamente</button></div>
-      <p className="status" role="status">{status}</p></section>
-    {diagnostic && <section className="results"><h2>Informações disponíveis neste navegador</h2><p>Estes dados são obtidos localmente via JavaScript. Nem todos são precisos ou exclusivos.</p>
-      <div className="details">{values.map(([key,value]) => <div key={key}><span>{key}</span><strong>{value}</strong></div>)}</div></section>}
-    <footer>Não acessamos seus arquivos, contatos ou histórico. Nenhuma geolocalização precisa é solicitada. A opção de registrar visita envia dados técnicos e permite estimar a localização por IP, sem armazenar o IP bruto. Dados podem estar imprecisos. <a href="https://github.com/FelhipeBrito/analytics-platform" target="_blank" rel="noreferrer">Código-fonte</a></footer>
+
+  return <main className="page">
+    <section className="center">
+      <img className="troll" src={TrollFace} alt="Trollface" />
+      <button className="reveal" onClick={showMyData}>{details ? "Atualizar meus dados" : "Mostrar meus dados"}</button>
+      {details && <section className="details" aria-label="Dados do navegador">
+        {details.map(([name, value]) => <div className="detail" key={name}><span>{name}</span><strong>{value}</strong></div>)}
+      </section>}
+      <p className="privacy">Ao mostrar seus dados, uma visita é registrada com informações técnicas e localização aproximada por IP. Não armazenamos o IP bruto. <a href="https://github.com/FelhipeBrito/analytics-platform" target="_blank" rel="noreferrer">Código-fonte</a></p>
+    </section>
   </main>;
 }
+
 export default App;
