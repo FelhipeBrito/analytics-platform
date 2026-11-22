@@ -9,20 +9,7 @@ router.use((req, res, next) => {
   const received = req.header("authorization")?.replace(/^Bearer\s+/i, "") || "";
   const a = Buffer.from(expected);
   const b = Buffer.from(received);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
-    // Diagnóstico temporário: registra apenas metadados, nunca os valores dos segredos.
-    // Remover após solucionar a configuração do Render.
-    console.warn("[stats-auth] token rejeitado", {
-      expectedLength: a.length,
-      receivedLength: b.length,
-      authorizationPresent: Boolean(req.header("authorization")),
-      bearerFormat: /^Bearer\\s+\\S+$/i.test(req.header("authorization") || ""),
-      expectedHasOuterWhitespace: expected !== expected.trim(),
-      receivedHasOuterWhitespace: received !== received.trim(),
-      sameByteLength: a.length === b.length,
-    });
-    return res.status(401).json({ error: "Acesso não autorizado" });
-  }
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return res.status(401).json({ error: "Acesso não autorizado" });
   next();
 });
 router.get("/", async (_req, res) => {
